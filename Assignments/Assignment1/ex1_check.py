@@ -1,5 +1,4 @@
 import time
-
 import ex1
 import search
 import simulator
@@ -11,50 +10,77 @@ def run_problem(func, targs=(), kwargs=None):
     result = (-3, "default")
     try:
         result = func(*targs, **kwargs)
-
     except Exception as e:
         result = (-3, e)
     return result
 
 
-# check_problem: problem, search_method, timeout
-# timeout_exec: search_method, targs=[problem], timeout_duration=timeout
-# check_problem: problem, search_method, timeout
-# timeout_exec: search_method, targs=[problem], timeout_duration=timeout
-def solve_problems(problem, algorithm, optimal_len=None):
+def run_and_visualize(problem, algorithm='gbfs'):
+    """
+    Run a single problem and visualize the solution with the simulator.
     
-
+    Args:
+        problem: Problem dictionary
+        algorithm: 'astar' or 'gbfs' (default: 'astar')
+    """
     try:
         p = ex1.create_watering_problem(problem)
     except Exception as e:
-        print("Error creating problem: ", e)
+        print("Error creating problem:", e)
+        return
+    
+    if algorithm == 'gbfs':
+        result = run_problem((lambda p: search.greedy_best_first_graph_search(p, p.h_gbfs)), targs=[p])
+    else:
+        result = run_problem((lambda p: search.astar_search(p, p.h_astar)), targs=[p])
+    
+    if result and isinstance(result[0], search.Node):
+        solve = result[0].path()[::-1]
+        solution = [pi.action for pi in solve][1:]
+        print(f"[{algorithm.upper()}] Solution found with {len(solution)} steps")
+        print(f"Actions: {solution}")
+        simulator.main(problem, solution)
+    else:
+        print(f"[{algorithm.upper()}] No solution found")
+
+
+def solve_problems(problem, algorithm, optimal_len=None):
+    try:
+        p = ex1.create_watering_problem(problem)
+    except Exception as e:
+        print("Error creating problem:", e)
         return None
 
     if algorithm == "gbfs":
-        result = run_problem((lambda p: search.greedy_best_first_graph_search(p, p.h_gbfs)),targs=[p])
+        result = run_problem((lambda p: search.greedy_best_first_graph_search(p, p.h_gbfs)), targs=[p])
     else:
         result = run_problem((lambda p: search.astar_search(p, p.h_astar)), targs=[p])
 
     if result and isinstance(result[0], search.Node):
         solve = result[0].path()[::-1]
-        solution = [pi.action for pi in solve][1:] # type: ignore
-        if optimal_len is not None and optimal_len != -1:
-            if len(solution) == optimal_len:
-                print(f"Correct! Length is {optimal_len}")
-            else:
-                print(len(solution), solution)
-                print(f"Wrong! Expected {optimal_len}, got {len(solution)}")
-                simulator.main(problem, solution)
+        solution = [pi.action for pi in solve][1:]  # type: ignore
+        steps = len(solution)
+        
+        if algorithm == "gbfs":
+            print(f"[GBFS] solved with {steps} steps, optimal solution is {optimal_len} steps")
         else:
-            print(len(solution), solution)
+            # A* case
+            if optimal_len is not None and optimal_len != -1:
+                if steps > optimal_len:
+                    print(f"[A*] solved with {steps} steps, optimal solution is {optimal_len} steps - SUBOPTIMAL!")
+                    simulator.main(problem, solution)
+                else:
+                    print(f"[A*] solved with {steps} steps, optimal solution is {optimal_len} steps")
+            else:
+                print(f"[A*] solved with {steps} steps, optimal solution is {optimal_len} steps")
     else:
-        print("no solution")
-        if optimal_len == -1:
-             print("Correct! No solution expected.")
-        elif optimal_len is not None:
-             print(f"Wrong! Expected {optimal_len}, got no solution")
+        # No solution found
+        if algorithm == "gbfs":
+            print(f"[GBFS] no solution, optimal solution is {optimal_len} steps")
+        else:
+            print(f"[A*] no solution, optimal solution is {optimal_len} steps")
 
-
+# Problem definitions
 
 #Optimal : 20
 Problem_pdf = {
@@ -80,13 +106,11 @@ Problem_pdf = {
 # -------------------------
 #Optimal : 8
 problem1 = {
-    "Size":   (3, 3),
-    "Walls":  set(),
-    "Taps":   {(1, 1): 3},        # center
-    "Plants": {(0, 2): 2},        # top-right
-    "Robots": {
-        10: (2, 0, 0, 2),         # bottom-left, cap 2
-    },
+    "Size": (3, 3),
+    "Walls": set(),
+    "Taps": {(1, 1): 3},
+    "Plants": {(0, 2): 2},
+    "Robots": {10: (2, 0, 0, 2)},
 }
 
 # -------------------------
@@ -95,38 +119,22 @@ problem1 = {
 # -------------------------
 #Optimal: 20
 problem2 = {
-    "Size":  (3, 3),
-    "Walls": {(0, 1), (2, 1)},    # middle column walls in top & bottom rows
-    "Taps":  {(1, 1): 6},         # center
-    "Plants": {
-        (0, 2): 3,                # top-right
-        (2, 0): 2,                # bottom-left
-    },
-    "Robots": {
-        10: (1, 0, 0, 2),         # middle-left
-        11: (1, 2, 0, 2),         # middle-right
-    },
+    "Size": (3, 3),
+    "Walls": {(0, 1), (2, 1)},
+    "Taps": {(1, 1): 6},
+    "Plants": {(0, 2): 3, (2, 0): 2},
+    "Robots": {10: (1, 0, 0, 2), 11: (1, 2, 0, 2)},
 }
-
-
-
-
 # -------------------------
 # Problem 3: Corridor with walls, 5x3, one robot shuttling
 # -------------------------
 #optimal: 28
 problem3 = {
-    "Size":  (5, 3),              # rows: 0..4, cols: 0..2
-    "Walls": {(1, 1), (3, 1)},    # walls in the middle column
-    "Taps": {
-        (0, 0): 5,                # top-left
-    },
-    "Plants": {
-        (4, 2): 4,                # bottom-right
-    },
-    "Robots": {
-        10: (2, 0, 0, 2),         # middle-left, cap 2 → needs multiple trips
-    },
+    "Size": (5, 3),
+    "Walls": {(1, 1), (3, 1)},
+    "Taps": {(0, 0): 5},
+    "Plants": {(4, 2): 4},
+    "Robots": {10: (2, 0, 0, 2)},
 }
 
 # -------------------------
@@ -134,21 +142,11 @@ problem3 = {
 # -------------------------
 #optimal: 13
 problem4 = {
-    "Size":  (5, 5),
-    "Walls": {(0, 1),(1, 1),(2, 1), (0, 3),(1, 3),(2, 3)},    # two blocked cells
-    "Taps": {
-        (3, 2): 1,                # top-left
-        (4, 2): 1,                # bottom-right
-    },
-    "Plants": {
-        (0, 2): 1,                # top-right
-        (1, 2): 1,                # bottom-left
-                        # somewhere in middle-left
-    },
-    "Robots": {
-        10: (3, 1, 0, 1),         # near left side
-        11: (3, 3, 0, 1),         # near right side
-    },
+    "Size": (5, 5),
+    "Walls": {(0, 1), (1, 1), (2, 1), (0, 3), (1, 3), (2, 3)},
+    "Taps": {(3, 2): 1, (4, 2): 1},
+    "Plants": {(0, 2): 1, (1, 2): 1},
+    "Robots": {10: (3, 1, 0, 1), 11: (3, 3, 0, 1)},
 }
 
 # -------------------------
@@ -156,62 +154,32 @@ problem4 = {
 # Good to test your dead-end pruning
 # -------------------------
 problem5_deadend = {
-    "Size":  (3, 4),
+    "Size": (3, 4),
     "Walls": set(),
-    "Taps": {
-        (1, 1): 3,                # only 3 units in world
-    },
-    "Plants": {
-        (0, 3): 2,
-        (2, 3): 2,                # total need = 4 > 3 → impossible
-    },
-    "Robots": {
-        10: (1, 0, 0, 2),
-    },
+    "Taps": {(1, 1): 3},
+    "Plants": {(0, 3): 2, (2, 3): 2},
+    "Robots": {10: (1, 0, 0, 2)},
 }
 # -------------------------
 # Problem 6:
 # -------------------------
 #optimal: 8
 problem6 = {
-    "Size":  (8, 8),
+    "Size": (8, 8),
     "Walls": {
-        # All cells except the corridor (1,0), (1,1), (1,2)
-        *( (r, c)
-           for r in range(8)
-           for c in range(8)
-           if not (r == 1 and c in (0, 1, 2)) )
+        *( (r, c) for r in range(8) for c in range(8) if not (r == 1 and c in (0, 1, 2)) )
     },
-    "Taps": {
-        (1, 1): 3,
-    },
-    "Plants": {
-        (1, 2): 3,
-    },
-    "Robots": {
-        10: (1, 0, 0, 3),   # start left of tap, cap 3
-    },
+    "Taps": {(1, 1): 3},
+    "Plants": {(1, 2): 3},
+    "Robots": {10: (1, 0, 0, 3)},
 }
 #optimal: 21
 problem7 = {
-    "Size":  (4, 4),
-
-    "Walls": set(),  # everything open
-
-    "Taps": {
-        (2, 2): 18,       # center tap
-    },
-
-    "Plants": {
-        (0, 3): 3,        # top-right
-        (3, 0): 3,        # bottom-left
-        # total need = 8, tap has 18 (some slack)
-    },
-
-    "Robots": {
-        10: (2, 1, 0, 3),  # left of tap, capacity 3
-        11: (2, 0, 0, 3),  # right of tap, capacity 3
-    },
+    "Size": (4, 4),
+    "Walls": set(),
+    "Taps": {(2, 2): 18},
+    "Plants": {(0, 3): 3, (3, 0): 3},
+    "Robots": {10: (2, 1, 0, 3), 11: (2, 0, 0, 3)},
 }
 
 
@@ -224,15 +192,14 @@ def main():
         (problem4, 13),
         (problem5_deadend, -1),
         (problem6, 8),
-        (problem7, 21)
+        (problem7, 21),
     ]
     for p, opt in problems:
-        # for a in ['astar','gbfs']:
-        for a in ['astar']:
+        for a in ['astar', 'gbfs']:
             solve_problems(p, a, opt)
     end = time.time()
-    print('Submission took:', end-start, 'seconds.')
-
+    print('Submission took:', end - start, 'seconds.')
 
 if __name__ == '__main__':
     main()
+    # run_and_visualize(problem4)
