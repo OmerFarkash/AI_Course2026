@@ -1,30 +1,9 @@
+import copy # Added for deepcopy
 import pygame
-import sys
 import os
+import sys
 import re
 
-# --- TEST STATES ---
-init_state = {
-    "Size": (3, 3),
-    "Walls": {(0, 1), (2, 1)},
-    "Taps": {(1, 1): 6}, # Reduced tap for testing
-    "Plants": {(2, 0): 2, (0, 2): 3}, # Reduced plants for testing
-    "Robots": {
-        # Format: (row, col, water_level, max_load)
-        10: (1, 0, 0, 2), 
-        11: (1, 2, 0, 2)
-    }
-}
-
-# --- ACTION LIST ---
-# This list will complete the mission for the test state above
-action_list = [
-    "RIGHT{10}", "LOAD{10}", "LOAD{10}", "LEFT{10}", "DOWN{10}", "POUR{10}", "POUR{10}", # Plant 1 (2,0) done
-    "LEFT{11}", "LOAD{11}", "LOAD{11}","RIGHT{11}", "UP{11}", "POUR{11}", "POUR{11}", "DOWN{11}", "LEFT{11}","LOAD{11}", "RIGHT{11}","UP{11}", "POUR{11}"    # Plant 2 (0,2) done
-]
-
-
-# --- Pygame Configuration ---
 TARGET_WINDOW_WIDTH = 1200
 TARGET_WINDOW_HEIGHT = 800
 IMAGE_SCALE_FACTOR = 0.7
@@ -35,6 +14,31 @@ BLACK = (0, 0, 0)
 RED = (210, 40, 40)
 BLUE = (0, 0, 200)
 GREEN_DARK = (0, 100, 0)
+
+# --- TEST STATES ---
+init_state = {
+    "Size":  (8, 8),
+    "Walls": {
+        # All cells except the corridor (1,0), (1,1), (1,2)
+        *( (r, c)
+           for r in range(8)
+           for c in range(8)
+           if not (r == 1 and c in (0, 1, 2)) )
+    },
+    "Taps": {
+        (1, 1): 3,
+    },
+    "Plants": {
+        (1, 2): 3,
+    },
+    "Robots": {
+        10: (1, 0, 0, 3),   # start left of tap, cap 3
+    },
+}
+# --- ACTION LIST ---
+# This list will complete the mission for the test state above
+action_list = ['RIGHT{10}', 'LOAD{10}', 'LOAD{10}', 'RIGHT{10}', 'POUR{10}', 'POUR{10}', 'LEFT{10}', 'LOAD{10}', 'RIGHT{10}', 'POUR{10}']
+
 
 # --- Helper Function ---
 def get_object_at(state, r, c):
@@ -63,10 +67,72 @@ def check_mission_complete(state):
     
     return True # All plants are at 0
 
+# --- Action Handlers ---
+def _handle_move(state, robot_id, action_type):
+    GRID_ROWS, GRID_COLS = state["Size"]
+    r, c, water, val2 = state["Robots"][robot_id]
+    nr, nc = r, c
+    if action_type == "UP":    nr -= 1
+    if action_type == "DOWN":  nr += 1
+    if action_type == "LEFT":  nc -= 1
+    if action_type == "RIGHT": nc += 1
+
+    if not (0 <= nr < GRID_ROWS and 0 <= nc < GRID_COLS):
+        print(f"Action failed: {action_type} is out of bounds.")
+        return False
+        
+    target_obj = get_object_at(state, nr, nc)
+    if target_obj in ["Wall", "Robot"]:
+        print(f"Action failed: {action_type} blocked by {target_obj}.")
+        return False
+        
+    state["Robots"][robot_id] = (nr, nc, water, val2)
+    print(f"Action successful: {action_type}")
+    return True
+
+def _handle_load(state, robot_id):
+    r, c, water, val2 = state["Robots"][robot_id]
+    if get_object_at(state, r, c) == "Tap":
+        if water >= val2:
+            print(f"Action failed: LOAD. Robot is at max capacity ({val2}).")
+            return False
+        tap_key = (r, c)
+        tap_value = state["Taps"][tap_key]
+        if tap_value > 0:
+            state["Taps"][tap_key] -= 1
+            state["Robots"][robot_id] = (r, c, water + 1, val2)
+            print(f"Action successful: LOAD")
+            return True
+        else:
+            print(f"Action failed: LOAD. Tap is empty.")
+            return False
+    else:
+        print(f"Action failed: LOAD. Robot is not on a Tap.")
+        return False
+
+def _handle_pour(state, robot_id):
+    r, c, water, val2 = state["Robots"][robot_id]
+    if get_object_at(state, r, c) == "Plant":
+        plant_key = (r, c)
+        plant_value = state["Plants"][plant_key]
+        
+        if water <= 0:
+            print(f"Action failed: POUR. Robot has no water.")
+            return False
+        if plant_value <= 0:
+            print(f"Action failed: POUR. Plant needs no water.")
+            return False
+            
+        state["Plants"][plant_key] -= 1
+        state["Robots"][robot_id] = (r, c, water - 1, val2)
+        print(f"Action successful: POUR")
+        return True
+    else:
+        print(f"Action failed: POUR. Robot is not on a Plant.")
+        return False
+
 # --- State Management Function ---
 def apply_action(state, action_string, config):
-    GRID_ROWS, GRID_COLS = state["Size"]
-    
     match = re.match(r"(\w+)\{(\d+)\}", action_string)
     if not match:
         print(f"Invalid action string: {action_string}")
@@ -83,69 +149,36 @@ def apply_action(state, action_string, config):
         print(f"Action failed: Robot {robot_id} not found.")
         return False
         
-    r, c, water, val2 = state["Robots"][robot_id] 
-    
     if action_type in ["UP", "DOWN", "LEFT", "RIGHT"]:
-        nr, nc = r, c
-        if action_type == "UP":    nr -= 1
-        if action_type == "DOWN":  nr += 1
-        if action_type == "LEFT":  nc -= 1
-        if action_type == "RIGHT": nc += 1
-
-        if not (0 <= nr < GRID_ROWS and 0 <= nc < GRID_COLS):
-            print(f"Action failed: {action_string} is out of bounds.")
-            return False
-            
-        target_obj = get_object_at(state, nr, nc)
-        if target_obj in ["Wall", "Robot"]:
-            print(f"Action failed: {action_string} blocked by {target_obj}.")
-            return False
-            
-        state["Robots"][robot_id] = (nr, nc, water, val2)
-        print(f"Action successful: {action_string}")
-        return True
-
+        return _handle_move(state, robot_id, action_type)
     elif action_type == "LOAD":
-        if get_object_at(state, r, c) == "Tap":
-            if water >= val2:
-                print(f"Action failed: {action_string}. Robot is at max capacity ({val2}).")
-                return False
-            tap_key = (r, c)
-            tap_value = state["Taps"][tap_key]
-            if tap_value > 0:
-                state["Taps"][tap_key] -= 1
-                state["Robots"][robot_id] = (r, c, water + 1, val2)
-                print(f"Action successful: {action_string}")
-                return True
-            else:
-                print(f"Action failed: {action_string}. Tap is empty.")
-                return False
-        else:
-            print(f"Action failed: {action_string}. Robot is not on a Tap.")
-            return False
-
+        return _handle_load(state, robot_id)
     elif action_type == "POUR":
-        if get_object_at(state, r, c) == "Plant":
-            plant_key = (r, c)
-            plant_value = state["Plants"][plant_key]
-            
-            if water <= 0:
-                print(f"Action failed: {action_string}. Robot has no water.")
-                return False
-            if plant_value <= 0:
-                print(f"Action failed: {action_string}. Plant needs no water.")
-                return False
-                
-            state["Plants"][plant_key] -= 1
-            state["Robots"][robot_id] = (r, c, water - 1, val2)
-            print(f"Action successful: {action_string}")
-            return True
-        else:
-            print(f"Action failed: {action_string}. Robot is not on a Plant.")
-            return False
+        return _handle_pour(state, robot_id)
     else:
         print(f"Action failed: Unknown action type '{action_type}'")
         return False
+
+def draw_element(screen, image, r, c, cell_size, config, text=None, text_color=BLACK, text_pos='center', sub_text=None, sub_text_color=BLUE):
+    padding = config["padding"]
+    cell_rect = pygame.Rect(c * cell_size, r * cell_size, cell_size, cell_size)
+    image_rect = image.get_rect(center=cell_rect.center)
+    screen.blit(image, image_rect)
+    
+    if text is not None:
+        text_surf = config["main_font"].render(str(text), True, text_color)
+        if text_pos == 'center':
+            text_rect = text_surf.get_rect(center=image_rect.center)
+        elif text_pos == 'topright':
+            text_rect = text_surf.get_rect(topright=(cell_rect.right - padding, cell_rect.top + padding))
+        elif text_pos == 'bottomleft':
+            text_rect = text_surf.get_rect(bottomleft=(cell_rect.left + padding, cell_rect.bottom - padding))
+        screen.blit(text_surf, text_rect)
+        
+    if sub_text is not None:
+        info_surf = config["small_font"].render(str(sub_text), True, sub_text_color)
+        info_rect = info_surf.get_rect(topright=(cell_rect.right - padding, cell_rect.top + padding))
+        screen.blit(info_surf, info_rect)
 
 # --- Drawing Function (Updated) ---
 def draw_game_state(screen, state, images, config, actions_taken_count, mission_complete):
@@ -164,36 +197,21 @@ def draw_game_state(screen, state, images, config, actions_taken_count, mission_
     WINDOW_WIDTH = config["WINDOW_WIDTH"]
     WINDOW_HEIGHT = config["WINDOW_HEIGHT"]
 
-    # --- Draw all game objects (same as before) ---
+    # --- Draw all game objects ---
     for (r, c) in state.get("Walls", []):
-        cell_rect = pygame.Rect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-        image_rect = images["wall"].get_rect(center=cell_rect.center)
-        screen.blit(images["wall"], image_rect)
+        draw_element(screen, images["wall"], r, c, CELL_SIZE, config)
+        
     for (r, c), value in state.get("Taps", {}).items():
-        cell_rect = pygame.Rect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-        image_rect = images["tap"].get_rect(center=cell_rect.center)
-        screen.blit(images["tap"], image_rect)
-        text_surf = main_font.render(str(value), True, BLACK)
-        text_rect = text_surf.get_rect(center=image_rect.center)
-        screen.blit(text_surf, text_rect)
+        draw_element(screen, images["tap"], r, c, CELL_SIZE, config, text=value)
+        
     for (r, c), value in state.get("Plants", {}).items():
-        cell_Rect = pygame.Rect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-        image_rect = images["plant"].get_rect(center=cell_Rect.center)
-        screen.blit(images["plant"], image_rect)
-        text_surf = main_font.render(str(value), True, BLACK)
-        text_rect = text_surf.get_rect(topright=(cell_Rect.right - padding, cell_Rect.top + padding))
-        screen.blit(text_surf, text_rect)
+        draw_element(screen, images["plant"], r, c, CELL_SIZE, config, text=value, text_pos='topright')
+        
     for robot_id, data in state.get("Robots", {}).items():
         r, c, water, val2 = data
-        cell_rect = pygame.Rect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-        image_rect = images["robot"].get_rect(center=cell_rect.center)
-        screen.blit(images["robot"], image_rect)
-        id_surf = main_font.render(str(robot_id), True, RED)
-        id_rect = id_surf.get_rect(bottomleft=(cell_rect.left + padding, cell_rect.bottom - padding))
-        screen.blit(id_surf, id_rect)
-        info_surf = small_font.render(f"{water},{val2}", True, BLUE)
-        info_rect = info_surf.get_rect(topright=(cell_rect.right - padding, cell_rect.top + padding))
-        screen.blit(info_surf, info_rect)
+        draw_element(screen, images["robot"], r, c, CELL_SIZE, config, 
+                     text=robot_id, text_color=RED, text_pos='bottomleft',
+                     sub_text=f"{water},{val2}", sub_text_color=BLUE)
 
     # --- Draw Grid Lines ---
     GRID_ROWS, GRID_COLS = state["Size"]
@@ -226,12 +244,20 @@ def draw_game_state(screen, state, images, config, actions_taken_count, mission_
         screen.blit(complete_surf, complete_rect)
 
 # --- Main Function (Updated) ---
-def main():
+def main(state_in=None, actions_in=None):
     pygame.init()
     pygame.font.init()
 
+    if state_in is None:
+        state_in = init_state
+    if actions_in is None:
+        actions_in = action_list
+        
+    # Deep copy to avoid modifying the original state if called multiple times
+    init_state_copy = copy.deepcopy(state_in)
+
     try:
-        GRID_ROWS, GRID_COLS = init_state["Size"]
+        GRID_ROWS, GRID_COLS = init_state_copy["Size"]
     except KeyError:
         print("Error: 'Size' key missing from init_state.")
         sys.exit()
@@ -297,7 +323,7 @@ def main():
         "WINDOW_HEIGHT": WINDOW_HEIGHT # New
     }
     
-    current_actions = list(action_list)
+    current_actions = list(actions_in)
     
     # --- NEW: State variables ---
     actions_taken_count = 0
@@ -322,13 +348,13 @@ def main():
                         action_to_do = current_actions.pop(0)
                         
                         # Check if the action was successful
-                        success = apply_action(init_state, action_to_do, config)
+                        success = apply_action(init_state_copy, action_to_do, config)
                         
                         if success:
                             actions_taken_count += 1 # Only increment on success
                             
                             # Check for win condition
-                            mission_complete = check_mission_complete(init_state)
+                            mission_complete = check_mission_complete(init_state_copy)
                             if mission_complete:
                                 print("-----------------------------------------------")
                                 print(f"--- MISSION COMPLETE in {actions_taken_count} actions! ---")
@@ -340,13 +366,13 @@ def main():
                         print("--- All actions complete. ---")
 
         # Update the drawing call to include new state variables
-        draw_game_state(screen, init_state, loaded_images, config, actions_taken_count, mission_complete)
+        draw_game_state(screen, init_state_copy, loaded_images, config, actions_taken_count, mission_complete)
         
         pygame.display.flip()
         clock.tick(30)
 
     pygame.quit()
-    sys.exit()
+    # sys.exit() # Removed to prevent killing the caller
 
 if __name__ == "__main__":
     main()

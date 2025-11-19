@@ -2,7 +2,7 @@ import time
 
 import ex1
 import search
-
+import simulator
 
 
 def run_problem(func, targs=(), kwargs=None):
@@ -19,7 +19,9 @@ def run_problem(func, targs=(), kwargs=None):
 
 # check_problem: problem, search_method, timeout
 # timeout_exec: search_method, targs=[problem], timeout_duration=timeout
-def solve_problems(problem, algorithm):
+# check_problem: problem, search_method, timeout
+# timeout_exec: search_method, targs=[problem], timeout_duration=timeout
+def solve_problems(problem, algorithm, optimal_len=None):
     
 
     try:
@@ -35,10 +37,22 @@ def solve_problems(problem, algorithm):
 
     if result and isinstance(result[0], search.Node):
         solve = result[0].path()[::-1]
-        solution = [pi.action for pi in solve][1:]
-        print(len(solution), solution)
+        solution = [pi.action for pi in solve][1:] # type: ignore
+        if optimal_len is not None and optimal_len != -1:
+            if len(solution) == optimal_len:
+                print(f"Correct! Length is {optimal_len}")
+            else:
+                print(len(solution), solution)
+                print(f"Wrong! Expected {optimal_len}, got {len(solution)}")
+                simulator.main(problem, solution)
+        else:
+            print(len(solution), solution)
     else:
         print("no solution")
+        if optimal_len == -1:
+             print("Correct! No solution expected.")
+        elif optimal_len is not None:
+             print(f"Wrong! Expected {optimal_len}, got no solution")
 
 
 
@@ -178,7 +192,7 @@ problem6 = {
         10: (1, 0, 0, 3),   # start left of tap, cap 3
     },
 }
-#optimal: 20
+#optimal: 21
 problem7 = {
     "Size":  (4, 4),
 
@@ -201,16 +215,21 @@ problem7 = {
 }
 
 
-
-
-
-
 def main():
     start = time.time()
-    problem = []
-    for p in problem:
-        for a in ['astar','gbfs']:
-            solve_problems(p, a)
+    problems = [
+        (problem1, 8),
+        (problem2, 20),
+        (problem3, 28),
+        (problem4, 13),
+        (problem5_deadend, -1),
+        (problem6, 8),
+        (problem7, 21)
+    ]
+    for p, opt in problems:
+        # for a in ['astar','gbfs']:
+        for a in ['astar']:
+            solve_problems(p, a, opt)
     end = time.time()
     print('Submission took:', end-start, 'seconds.')
 
